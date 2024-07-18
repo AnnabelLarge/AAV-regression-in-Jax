@@ -1,0 +1,12 @@
+# python intermediates
+__pycache__
+./*__pycache__
+
+# mac intermediates
+.DS_Store
+*/.DS_Store
+._*
+*/._*
+
+# data folder
+data
