@@ -1,5 +1,6 @@
 # To Do
-- dataloaders
+- (DONE) dataloaders
+  - (DONE) supportive utils
 - loss functions
 - basic models
   - NEW: mamba
