@@ -8,4 +8,4 @@
 - eval_one_batch
 - training wrapper
 - eval wrapper
-- CLI + JSON interface
+- NEW: CLI + JSON interface
