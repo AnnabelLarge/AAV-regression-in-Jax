@@ -1,2 +1,11 @@
-# AAV-regression-in-Jax
-Prediction of AAV capsid fitness from VP1 protein sequence; written in Jax with PyTorch dataloaders
+# To Do
+- dataloaders
+- loss functions
+- basic models
+  - NEW: mamba
+- NEW: model initializers
+- train_one_batch
+- eval_one_batch
+- training wrapper
+- eval wrapper
+- CLI + JSON interface
