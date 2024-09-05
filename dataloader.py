@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Created on Sat Dec 17 18:48:28 2022
@@ -56,8 +56,8 @@ class ChimericLoader(Dataset):
                             None]
         assert transform in valid_transforms, f'Options are: {valid_transforms}'
         
-        self.transform = transform
         self.maxlen = maxlen
+        self.transform = transform
         
         ############################
         ### hardcode N_pre, N_post #
@@ -91,8 +91,11 @@ class ChimericLoader(Dataset):
         ### TRANSFORM #########
         #######################
         # One-hot encoding of gapped protein sequences
-        # overwrite maxlen to be the fixed-width gapped protein sequence
         if transform == 'onehot_gapped':
+            # max length is automatically the length of the MSA, so overwrite
+            self.maxlen = len(self.df['Gapped_Prot_Seq'].iloc[0])
+            self.xdim = (self.maxlen * len(alphabet)) + 1
+            
             # toss some of the samples, due to incorrect gapped seqs
             self.df = self.df[self.df['keep_gappedSeq']]
 
@@ -100,26 +103,31 @@ class ChimericLoader(Dataset):
             alphabet = ['-', 'A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 
                         'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y']
             
-            self.xdim = (self.maxlen * len(alphabet)) + 1
-            self.mapping = dict((c, i) for i, c in enumerate(alphabet))
+            
+            seqs_to_encode = self.df['Gapped_Prot_Seq'].to_list()
+            self.seqs = OneHotTokenPad(seq_lst = seqs_to_encode, 
+                                       alphabet = alphabet)
+            
         
         # categorical tokenization
         elif transform == 'char_tokenizer':
-            print(('Applying character-level tokenization with padding, '+
-                   'start, and end tokens\n'))
-            alphabet = ['<pad>', '<bos>', '<eos>', 'A', 'C', 'D', 'E', 'F', 
-                        'G', 'H', 'I', 'K', 'L', 'M', 'N', 'P', 'Q', 'R', 'S', 
-                        'T', 'V', 'W', 'Y']
-            self.xdim = (self.maxlen + 2) + 1
-            self.mapping = dict((c, i) for i, c in enumerate(alphabet))
-        
+            print(('Applying character-level tokenization with padding\n'))
+            alphabet = ['<pad>', 'A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 
+                        'L', 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y']
+            self.xdim = (self.maxlen) + 1
+            
+            seqs_to_encode = self.df['Prot_Seq'].tolist()
+            self.seqs = CharTokenizer(seq_lst = seqs_to_encode, 
+                                      max_len = self.maxlen, 
+                                      alphabet = alphabet)
+            
         # Load ESM-1v mean embeddings
         elif transform == 'esm1v_mean':
             print('Reading from pre-computed ESM-1v embeddings')
             filename = f'./data/{prefix}_ESM1v_embeddings.pt'
-            self.tens = torch.load(filename)
-            self.xdim = self.tens.shape[-1] + 1
-        
+            with open(filename,'rb') as f:
+                self.seqs = jnp.load(f)
+            self.xdim = self.seqs.shape[-1] + 1
         
         elif transform == None:
             self.xdim = (self.maxlen) + 1
@@ -145,51 +153,28 @@ class ChimericLoader(Dataset):
     def __getitem__(self, idx):
         sample = self.df.iloc[idx]
         
-        # ### Get ChimericID (string)
-        # sample_readname = sample['ChimericID']
+        # Get n_pre and n_post from self.df (np int)
+        sample_pre = np.array( sample['Prepackaging_Counts'] )
+        sample_post = np.array( sample['Postpackaging-R1_Counts'] )
         
-        ### Get n_pre and n_post (int)
-        sample_pre = sample['Prepackaging_Counts'] 
-        sample_pre = torch.Tensor([sample_pre])
-        sample_post = sample['Postpackaging-R1_Counts'] 
-        sample_post = torch.Tensor([sample_post])
+        # Get sequence from self.seqs (np array)
+        sample_feats = self.seqs[idx, :]
         
-        
-        ###################################
-        ### Get Protein Sequence (tensor) #
-        ###################################
-        ### one-hot encoding of gapped (aligned) sequences
-        if self.transform == 'onehot_gapped':
-            seq = sample['Gapped_Prot_Seq']
-            sample_feats = OneHotTokenPad(seq = seq, 
-                                          max_len = self.maxlen, 
-                                          mapping = self.mapping)
-        
-        ### categorical encoding with end padding
-        elif self.transform == 'char_tokenizer':
-            seq = sample['Prot_Seq']
-            sample_feats = CharTokenizer(seq = seq, 
-                                         max_len = self.maxlen, 
-                                         mapping = self.mapping)
-        
-        ### loading from ESM-1v embeddings
-        elif self.transform == 'esm1v_mean':
-            sample_feats = self.tens[idx]
-        
-        
-        ##############################
-        ### Add c (or placeholder 1) #
-        ##############################
-        # if you're not adding c, then this will just be 1
-        final_feat = torch.Tensor([ sample['c'] ])
-        sample_feats = torch.cat([sample_feats, final_feat], dim=0)
-        
+        # Add c (if you're not adding c, then this will just be 1)
+        final_feat =  np.array([ sample['c'] ])
+        sample_feats = np.concatenate([sample_feats, final_feat], axis=0)
         return (idx, sample_pre, sample_post, sample_feats)
     
     
+    def return_sample_name(self,idx_lst):
+        cols_to_return = ['ChimericID','Prepackaging_Counts','Postpackaging-R1_Counts']
+        return self.df[cols_to_return].iloc[idx_lst]
+        
+    
     def get_xdim(self):
         """
-        Other code used this function, so keep for now...
+        Other code used this function, so keep for now?
+        Wherever this was used, just replace with a shape retrieval
         """
         return self.xdim
     
@@ -203,8 +188,8 @@ if __name__ == '__main__':
     y = ChimericLoader(prefix='valid', 
                         addc = False,
                         alpha=0,
-                        maxlen = 20,
-                        transform='onehot_gapped')
+                        maxlen = 751,
+                        transform='char_tokenizer')
     ex_y = y[0]
     
     y_dl = DataLoader(y, 
@@ -214,3 +199,5 @@ if __name__ == '__main__':
     
     ex_batch = list(y_dl)[0]
     idxes, n_pres, n_posts, feats = ex_batch
+    
+    new_df = y.return_sample_name(idxes)
